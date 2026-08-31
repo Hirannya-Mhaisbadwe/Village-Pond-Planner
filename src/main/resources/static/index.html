@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Village Pond Planner - Automated Catchment Analytics</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #151d30;
+            --card-border: #243049;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        header {
+            background-color: var(--card-bg);
+            border-bottom: 1px solid var(--card-border);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(to right, #60a5fa, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        header p {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            height: calc(100vh - 64px);
+        }
+
+        /* Sidebar configuration panel */
+        .sidebar {
+            width: 380px;
+            background-color: var(--card-bg);
+            border-right: 1px solid var(--card-border);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 14px;
+        }
+
+        .form-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .form-control {
+            background-color: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--card-border);
+            color: white;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            width: 100%;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            background-color: var(--primary);
+            color: white;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .btn:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .btn:disabled {
+            background-color: var(--card-border);
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        /* Results dashboard */
+        .results-panel {
+            display: none;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 10px;
+            border-top: 1px solid var(--card-border);
+            padding-top: 20px;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .metric-card {
+            background-color: rgba(15, 23, 42, 0.4);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 14px;
+        }
+
+        .metric-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .metric-unit {
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-left: 2px;
+        }
+
+        .analysis-card {
+            background-color: rgba(15, 23, 42, 0.4);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+
+        .analysis-card h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 6px;
+            color: var(--primary);
+        }
+
+        .dimension-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .dimension-row span:first-child {
+            color: var(--text-muted);
+        }
+
+        .dimension-row span:last-child {
+            font-weight: 600;
+        }
+
+        /* Map and Visualization area */
+        .map-container {
+            flex: 1;
+            position: relative;
+            background-color: #111;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .map-legend {
+            position: absolute;
+            bottom: 24px;
+            right: 24px;
+            background-color: rgba(21, 29, 48, 0.9);
+            border: 1px solid var(--card-border);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            backdrop-filter: blur(8px);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+        }
+
+        .loading-overlay {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(11, 15, 25, 0.85);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 16px;
+            backdrop-filter: blur(4px);
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border-left-color: var(--primary);
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Leaflet theme overrides */
+        .leaflet-bar a {
+            background-color: var(--card-bg) !important;
+            color: var(--text-color) !important;
+            border-bottom: 1px solid var(--card-border) !important;
+        }
+        .leaflet-bar a:hover {
+            background-color: var(--card-border) !important;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>Village Pond Planner</h1>
+        <p>AI-Driven Hydrological Runoff & Pond Sizing System</p>
+    </div>
+    <div style="font-size: 12px; color: var(--text-muted); text-align: right;">
+        Geoportal Status: <span style="color: var(--success); font-weight: 600;">OPERATIONAL</span>
+    </div>
+</header>
+
+<div class="main-container">
+    <div class="sidebar">
+        <div>
+            <h2 class="section-title">Query Parameters</h2>
+            <div class="form-group">
+                <label for="input-village">Village Name</label>
+                <input type="text" id="input-village" class="form-control" placeholder="e.g. Anjora" value="Anjora">
+            </div>
+            <div class="form-group">
+                <label for="input-tehsil">Tehsil Name</label>
+                <input type="text" id="input-tehsil" class="form-control" placeholder="e.g. Durg" value="Durg">
+            </div>
+            <div class="form-group">
+                <label for="input-radius">Catchment Area Radius (m)</label>
+                <select id="input-radius" class="form-control">
+                    <option value="500">500 meters</option>
+                    <option value="1000" selected>1,000 meters</option>
+                    <option value="1500">1,500 meters</option>
+                    <option value="2000">2,000 meters</option>
+                    <option value="3000">3,000 meters</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="input-soil">Soil Texture Type</label>
+                <select id="input-soil" class="form-control">
+                    <option value="Sandy">Sandy (High infiltration, low runoff)</option>
+                    <option value="Loamy" selected>Loamy (Medium infiltration, medium runoff)</option>
+                    <option value="Clayey">Clayey (Low infiltration, high runoff)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="input-cover">Land Cover Classification</label>
+                <select id="input-cover" class="form-control">
+                    <option value="Forest">Forest / Vegetation</option>
+                    <option value="Agriculture" selected>Agricultural Cropland</option>
+                    <option value="Barren">Barren / Waste Land</option>
+                </select>
+            </div>
+            <button class="btn" id="analyze-btn" style="margin-top: 10px;">Run Pond Sizing Pipeline</button>
+        </div>
+
+        <div class="results-panel" id="results">
+            <h2 class="section-title">Catchment Analysis</h2>
+            
+            <div class="metric-grid">
+                <div class="metric-card">
+                    <div class="metric-label">Catchment Basin</div>
+                    <div class="metric-value" id="val-catchment">0.0<span class="metric-unit">ha</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Annual Rainfall</div>
+                    <div class="metric-value" id="val-rainfall">0<span class="metric-unit">mm</span></div>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Estimated Annual Runoff</div>
+                <div class="metric-value" id="val-runoff" style="color: #60a5fa;">0.0<span class="metric-unit">m³</span></div>
+            </div>
+
+            <div class="analysis-card">
+                <h3>Recommended Pond Sizing</h3>
+                <div class="dimension-row">
+                    <span>Safe Excavation Depth</span>
+                    <span id="dim-depth">0.0 m</span>
+                </div>
+                <div class="dimension-row">
+                    <span>Excavation Length</span>
+                    <span id="dim-length">0.0 m</span>
+                </div>
+                <div class="dimension-row">
+                    <span>Excavation Width</span>
+                    <span id="dim-width">0.0 m</span>
+                </div>
+                <div class="dimension-row">
+                    <span>Side Slope Ratio</span>
+                    <span id="dim-slope">1.5:1</span>
+                </div>
+                <div class="dimension-row" style="margin-top: 8px; border-top: 1px solid var(--card-border); padding-top: 8px;">
+                    <span style="color: var(--success); font-weight: 600;">Storage Capacity</span>
+                    <span id="dim-capacity" style="color: var(--success); font-weight: 700;">0 m³</span>
+                </div>
+            </div>
+
+            <div class="analysis-card">
+                <h3>Geopoint Location</h3>
+                <div class="dimension-row">
+                    <span>Latitude</span>
+                    <span id="coord-lat">0.0</span>
+                </div>
+                <div class="dimension-row">
+                    <span>Longitude</span>
+                    <span id="coord-lon">0.0</span>
+                </div>
+                <div class="dimension-row">
+                    <span>Elevation at Bottom</span>
+                    <span id="coord-alt">0.0 m</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="map-container">
+        <div id="map"></div>
+
+        <div class="map-legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #3b82f6; opacity: 0.3; border: 1px solid #3b82f6;"></div>
+                <span>Catchment Area</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ef4444; border-radius: 50%;"></div>
+                <span>Optimal Pond Location</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #f59e0b; border-radius: 50%;"></div>
+                <span>Alternative Pond Sites</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(to right, #22c55e, #a855f7, #ef4444);"></div>
+                <span>Elevation Scale (Low to High)</span>
+            </div>
+        </div>
+
+        <div class="loading-overlay" id="loading">
+            <div class="spinner"></div>
+            <h3 style="font-weight: 500;">Running Hydrological Pipeline</h3>
+            <p style="color: var(--text-muted); font-size: 13px; text-align: center; max-width: 300px; margin-top: 6px;">
+                Geocoding village coordinates, constructing digital elevation model grid, fetching weather data, and routing runoff streams...
+            </p>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    // Initialize map centered on India
+    const map = L.map('map', {
+        zoomControl: true,
+        attributionControl: false
+    }).setView([20.5937, 78.9629], 5);
+
+    // Satellite base layer
+    const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
+
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const loading = document.getElementById('loading');
+    const resultsPanel = document.getElementById('results');
+
+    let mapLayers = [];
+
+    function clearMapLayers() {
+        mapLayers.forEach(layer => map.removeLayer(layer));
+        mapLayers = [];
+    }
+
+    analyzeBtn.addEventListener('click', () => {
+        const village = document.getElementById('input-village').value.trim();
+        const tehsil = document.getElementById('input-tehsil').value.trim();
+        const radius = parseFloat(document.getElementById('input-radius').value);
+        const soil = document.getElementById('input-soil').value;
+        const cover = document.getElementById('input-cover').value;
+
+        if (!village || !tehsil) {
+            alert('Please enter both Village Name and Tehsil Name.');
+            return;
+        }
+
+        loading.style.display = 'flex';
+        analyzeBtn.setAttribute('disabled', 'true');
+        clearMapLayers();
+
+        fetch('/api/planning/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                village: village,
+                tehsil: tehsil,
+                radiusMeters: radius,
+                soilType: soil,
+                landCover: cover
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.text().then(text => { throw new Error(text) });
+            }
+            return response.json();
+        })
+        .then(data => {
+            renderPlanningResults(data);
+        })
+        .catch(error => {
+            alert(`Execution Error: ${error.message}`);
+        })
+        .finally(() => {
+            loading.style.display = 'none';
+            analyzeBtn.removeAttribute('disabled');
+        });
+    });
+
+    function renderPlanningResults(data) {
+        resultsPanel.style.display = 'flex';
+
+        // Update metrics
+        document.getElementById('val-catchment').innerHTML = `${data.catchmentAreaHectares.toFixed(2)}<span class="metric-unit">ha</span>`;
+        document.getElementById('val-rainfall').innerHTML = `${Math.round(data.annualRainfallMm)}<span class="metric-unit">mm</span>`;
+        document.getElementById('val-runoff').innerHTML = `${Math.round(data.estimatedRunoffVolumeCuM).toLocaleString()}<span class="metric-unit">m³</span>`;
+
+        // Update dimensions
+        document.getElementById('dim-depth').textContent = `${data.recommendedDepthMeters.toFixed(1)} m`;
+        document.getElementById('dim-length').textContent = `${data.recommendedLengthMeters.toFixed(1)} m`;
+        document.getElementById('dim-width').textContent = `${data.recommendedWidthMeters.toFixed(1)} m`;
+        document.getElementById('dim-slope').textContent = `${data.recommendedSideSlope.toFixed(1)}:1`;
+        document.getElementById('dim-capacity').textContent = `${Math.round(data.estimatedStorageCapacityCuM).toLocaleString()} m³`;
+
+        // Update coordinates
+        document.getElementById('coord-lat').textContent = data.pondLocation.latitude.toFixed(6);
+        document.getElementById('coord-lon').textContent = data.pondLocation.longitude.toFixed(6);
+        document.getElementById('coord-alt').textContent = `${data.pondLocation.elevation.toFixed(1)} m`;
+
+        let elevationFeatures = [];
+
+        // 1. Shaded relief/elevation heat map using grid cells
+        if (data.catchmentCells && data.catchmentCells.length > 0) {
+            // Find bounds of grid elevations
+            const elevations = data.catchmentCells.map(c => c.elevation);
+            const minEle = Math.min(...elevations);
+            const maxEle = Math.max(...elevations);
+
+            data.catchmentCells.forEach(cell => {
+                const color = getElevationColor(cell.elevation, minEle, maxEle);
+                const rect = L.circle([cell.latitude, cell.longitude], {
+                    radius: 65, // matches approximate cell spacing
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.25,
+                    stroke: false
+                }).addTo(map);
+                
+                rect.bindPopup(`Grid Elevation: ${cell.elevation.toFixed(1)} m`);
+                mapLayers.push(rect);
+                elevationFeatures.push(rect);
+            });
+        }
+
+        // Fit map bounds to the analyzed elevation grid
+        if (elevationFeatures.length > 0) {
+            const group = new L.featureGroup(elevationFeatures);
+            map.fitBounds(group.getBounds());
+        } else {
+            map.setView([data.pondLocation.latitude, data.pondLocation.longitude], 14);
+        }
+
+        // 2. Draw optimal pond location marker
+        const optimalMarker = L.circleMarker([data.pondLocation.latitude, data.pondLocation.longitude], {
+            radius: 9,
+            color: '#ffffff',
+            fillColor: '#ef4444',
+            fillOpacity: 1,
+            weight: 2
+        }).addTo(map);
+
+        optimalMarker.bindPopup(`
+            <div style="font-family: 'Inter', sans-serif; color: #1e293b; padding: 4px;">
+                <h4 style="margin-bottom: 4px; font-weight:600; color: #ef4444;">Optimal Pond Location</h4>
+                <p style="font-size:12px; margin: 2px 0;"><strong>Elevation:</strong> ${data.pondLocation.elevation.toFixed(1)} m</p>
+                <p style="font-size:12px; margin: 2px 0;"><strong>Excavation size:</strong> ${data.recommendedLengthMeters.toFixed(1)}m × ${data.recommendedWidthMeters.toFixed(1)}m</p>
+                <p style="font-size:12px; margin: 2px 0;"><strong>Capacity:</strong> ${Math.round(data.estimatedStorageCapacityCuM)} m³</p>
+            </div>
+        `).openPopup();
+        mapLayers.push(optimalMarker);
+
+        // 3. Draw alternative pond sites
+        if (data.alternativeSinks && data.alternativeSinks.length > 0) {
+            data.alternativeSinks.forEach((sink, i) => {
+                const marker = L.circleMarker([sink.location.latitude, sink.location.longitude], {
+                    radius: 7,
+                    color: '#ffffff',
+                    fillColor: '#f59e0b',
+                    fillOpacity: 0.9,
+                    weight: 1.5
+                }).addTo(map);
+
+                marker.bindPopup(`
+                    <div style="font-family: 'Inter', sans-serif; color: #1e293b; padding: 4px;">
+                        <h4 style="margin-bottom: 4px; font-weight:600; color: #f59e0b;">Alternative Site #${i+1}</h4>
+                        <p style="font-size:11px; margin: 2px 0;"><strong>Elevation:</strong> ${sink.location.elevation.toFixed(1)} m</p>
+                        <p style="font-size:11px; margin: 2px 0;"><strong>Catchment:</strong> ${(sink.catchmentAreaSqMeters / 10000.0).toFixed(2)} ha</p>
+                    </div>
+                `);
+                map.addLayer(marker);
+                mapLayers.push(marker);
+            });
+        }
+    }
+
+    function getElevationColor(val, min, max) {
+        if (max === min) return '#22c55e'; // default green
+        const pct = (val - min) / (max - min);
+        // Simple Hue gradient from Green (120) for low values to Purple/Red (270 to 0) for high elevation values
+        const hue = (1.0 - pct) * 240; 
+        return `hsl(${hue}, 80%, 45%)`;
+    }
+</script>
+</body>
+</html>

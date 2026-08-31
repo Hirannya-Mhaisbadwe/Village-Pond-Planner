@@ -32,23 +32,38 @@ public class ElevationClient {
 
     //method for elevation grid building
     public ElevationResponse getMultipleElevationPoints(List<GridCoordinate> coordinateList){
-        String latitudes=coordinateList.stream()
-                .map(c-> String.valueOf(c.getLatitude()))
-                .collect(Collectors.joining(","));
+        java.util.List<Double> allElevations = new java.util.ArrayList<>();
+        int batchSize = 100;
 
-        String longitudes=coordinateList.stream()
-                .map(c->String.valueOf(c.getLongitude()))
-                .collect(Collectors.joining(","));
+        for (int i = 0; i < coordinateList.size(); i += batchSize) {
+            List<GridCoordinate> subList = coordinateList.subList(i, Math.min(i + batchSize, coordinateList.size()));
 
-        return restClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .scheme("https")
-                        .host("api.open-meteo.com")
-                        .path("/v1/elevation")
-                        .queryParam("latitude",latitudes)
-                        .queryParam("longitude",longitudes)
-                        .build())
-                .retrieve()
-                .body(ElevationResponse.class);
+            String latitudes = subList.stream()
+                    .map(c -> String.valueOf(c.getLatitude()))
+                    .collect(Collectors.joining(","));
+
+            String longitudes = subList.stream()
+                    .map(c -> String.valueOf(c.getLongitude()))
+                    .collect(Collectors.joining(","));
+
+            ElevationResponse batchResponse = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .scheme("https")
+                            .host("api.open-meteo.com")
+                            .path("/v1/elevation")
+                            .queryParam("latitude", latitudes)
+                            .queryParam("longitude", longitudes)
+                            .build())
+                    .retrieve()
+                    .body(ElevationResponse.class);
+
+            if (batchResponse != null && batchResponse.getElevation() != null) {
+                allElevations.addAll(batchResponse.getElevation());
+            }
+        }
+
+        ElevationResponse finalResponse = new ElevationResponse();
+        finalResponse.setElevation(allElevations);
+        return finalResponse;
     }
 }
