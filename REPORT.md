@@ -17,17 +17,19 @@
 
 ## 2. Working API Route URLs
 
-The backend server exposes production-ready REST endpoints:
+The backend server is deployed live on Render and also runs locally:
 
-### Primary Submission Routes (Contour File Upload - KML / KMZ)
-- `POST http://localhost:8080/analyzeContour`
-- `POST http://localhost:8080/findCatchment`
-- `POST http://localhost:8080/api/terrain/analyze-contour`
+### Live Deployed Cloud Endpoints (Render)
+- **Live Web Application (UI)**: [https://village-pond-planner.onrender.com/](https://village-pond-planner.onrender.com/)
+- **Primary Submission API Route**: `POST https://village-pond-planner.onrender.com/analyzeContour`
+- **Alias Submission API Route**: `POST https://village-pond-planner.onrender.com/findCatchment`
+- **Terrain Route**: `POST https://village-pond-planner.onrender.com/api/terrain/analyze-contour`
+- **Village Planning Route**: `POST https://village-pond-planner.onrender.com/api/planning/analyze`
 
-### Complementary Geospatial Pipelines (Village & AOI Geocoding)
-- `POST http://localhost:8080/api/planning/analyze` (End-to-end Village/AOI planning)
-- `POST http://localhost:8080/api/planning/pipeline` (Modular granular pipeline)
-- **Interactive Web Dashboard**: `http://localhost:8080/` (Integrated Leaflet Geospatial UI)
+### Local Development Endpoints
+- **Local Primary Route**: `POST http://localhost:8080/analyzeContour`
+- **Local Alias Route**: `POST http://localhost:8080/findCatchment`
+- **Local Web Dashboard**: `http://localhost:8080/`
 
 ---
 
@@ -93,13 +95,19 @@ The provided sample map `contours_1m.kml` ($6.71\text{ MB}$, containing $160,473
 
 ### Execution Command
 
+#### Test against Live Render Deployment:
+```powershell
+curl.exe -X POST https://village-pond-planner.onrender.com/analyzeContour -F "file=@contours_1m.kml"
+```
+
+#### Test against Localhost:
 ```powershell
 curl.exe -X POST http://localhost:8080/analyzeContour -F "file=@contours_1m.kml"
 ```
 
 *Native PowerShell equivalent:*
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/analyzeContour" -Method Post -Form @{ file = Get-Item "contours_1m.kml" }
+Invoke-RestMethod -Uri "https://village-pond-planner.onrender.com/analyzeContour" -Method Post -Form @{ file = Get-Item "contours_1m.kml" }
 ```
 
 ### Actual Output Metrics (Derived from `contours_1m.kml`)
