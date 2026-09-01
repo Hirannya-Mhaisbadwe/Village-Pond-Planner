@@ -310,40 +310,67 @@
 <div class="main-container">
     <div class="sidebar">
         <div>
-            <h2 class="section-title">Query Parameters</h2>
-            <div class="form-group">
-                <label for="input-village">Village Name</label>
-                <input type="text" id="input-village" class="form-control" placeholder="e.g. Anjora" value="Anjora">
+            <div style="display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--card-border); padding-bottom: 10px;">
+                <button id="tab-btn-village" style="flex: 1; padding: 8px; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--primary); color: #fff; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                    Village AOI Mode
+                </button>
+                <button id="tab-btn-kml" style="flex: 1; padding: 8px; background: transparent; border: 1px solid var(--card-border); color: var(--text-muted); border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                    Upload KML / KMZ
+                </button>
             </div>
-            <div class="form-group">
-                <label for="input-tehsil">Tehsil Name</label>
-                <input type="text" id="input-tehsil" class="form-control" placeholder="e.g. Durg" value="Durg">
+
+            <!-- Village Search Mode Form -->
+            <div id="form-village-mode">
+                <h2 class="section-title">Village Parameters</h2>
+                <div class="form-group">
+                    <label for="input-village">Village Name</label>
+                    <input type="text" id="input-village" class="form-control" placeholder="e.g. Anjora" value="Anjora">
+                </div>
+                <div class="form-group">
+                    <label for="input-tehsil">Tehsil Name</label>
+                    <input type="text" id="input-tehsil" class="form-control" placeholder="e.g. Durg" value="Durg">
+                </div>
+                <div class="form-group">
+                    <label for="input-length">AOI Length / East-West (m)</label>
+                    <input type="number" id="input-length" class="form-control" placeholder="e.g. 2000" value="2000" min="200" max="10000" step="100">
+                </div>
+                <div class="form-group">
+                    <label for="input-width">AOI Width / North-South (m)</label>
+                    <input type="number" id="input-width" class="form-control" placeholder="e.g. 2000" value="2000" min="200" max="10000" step="100">
+                </div>
+                <div class="form-group">
+                    <label for="input-soil">Soil Texture Type</label>
+                    <select id="input-soil" class="form-control">
+                        <option value="Sandy">Sandy (High infiltration, low runoff)</option>
+                        <option value="Loamy" selected>Loamy (Medium infiltration, medium runoff)</option>
+                        <option value="Clayey">Clayey (Low infiltration, high runoff)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="input-cover">Land Cover Classification</label>
+                    <select id="input-cover" class="form-control">
+                        <option value="Forest">Forest / Vegetation</option>
+                        <option value="Agriculture" selected>Agricultural Cropland</option>
+                        <option value="Barren">Barren / Waste Land</option>
+                    </select>
+                </div>
+                <button class="btn" id="analyze-btn" style="margin-top: 10px;">Run Pond Sizing Pipeline</button>
             </div>
-            <div class="form-group">
-                <label for="input-length">AOI Length / East-West (m)</label>
-                <input type="number" id="input-length" class="form-control" placeholder="e.g. 2000" value="2000" min="200" max="10000" step="100">
+
+            <!-- Upload KML Mode Form -->
+            <div id="form-kml-mode" style="display: none;">
+                <h2 class="section-title">Contour Map Upload</h2>
+                <div class="form-group">
+                    <label for="input-kml">Select KML / KMZ Contour File</label>
+                    <input type="file" id="input-kml" class="form-control" accept=".kml,.kmz" style="padding: 8px;">
+                    <p style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                        Upload sample <code>contours_1m.kml</code> or any custom topographic contour file.
+                    </p>
+                </div>
+                <button class="btn" id="analyze-kml-btn" style="margin-top: 10px; background: linear-gradient(135deg, #10b981, #059669);">
+                    Analyze Uploaded Contour Map
+                </button>
             </div>
-            <div class="form-group">
-                <label for="input-width">AOI Width / North-South (m)</label>
-                <input type="number" id="input-width" class="form-control" placeholder="e.g. 2000" value="2000" min="200" max="10000" step="100">
-            </div>
-            <div class="form-group">
-                <label for="input-soil">Soil Texture Type</label>
-                <select id="input-soil" class="form-control">
-                    <option value="Sandy">Sandy (High infiltration, low runoff)</option>
-                    <option value="Loamy" selected>Loamy (Medium infiltration, medium runoff)</option>
-                    <option value="Clayey">Clayey (Low infiltration, high runoff)</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="input-cover">Land Cover Classification</label>
-                <select id="input-cover" class="form-control">
-                    <option value="Forest">Forest / Vegetation</option>
-                    <option value="Agriculture" selected>Agricultural Cropland</option>
-                    <option value="Barren">Barren / Waste Land</option>
-                </select>
-            </div>
-            <button class="btn" id="analyze-btn" style="margin-top: 10px;">Run Pond Sizing Pipeline</button>
         </div>
 
         <div class="results-panel" id="results">
@@ -454,6 +481,40 @@
         mapLayers = [];
     }
 
+    // Tab Mode Switching
+    const tabBtnVillage = document.getElementById('tab-btn-village');
+    const tabBtnKml = document.getElementById('tab-btn-kml');
+    const formVillageMode = document.getElementById('form-village-mode');
+    const formKmlMode = document.getElementById('form-kml-mode');
+    const analyzeKmlBtn = document.getElementById('analyze-kml-btn');
+
+    tabBtnVillage.addEventListener('click', () => {
+        tabBtnVillage.style.background = 'rgba(59, 130, 246, 0.2)';
+        tabBtnVillage.style.borderColor = 'var(--primary)';
+        tabBtnVillage.style.color = '#fff';
+
+        tabBtnKml.style.background = 'transparent';
+        tabBtnKml.style.borderColor = 'var(--card-border)';
+        tabBtnKml.style.color = 'var(--text-muted)';
+
+        formVillageMode.style.display = 'block';
+        formKmlMode.style.display = 'none';
+    });
+
+    tabBtnKml.addEventListener('click', () => {
+        tabBtnKml.style.background = 'rgba(16, 185, 129, 0.2)';
+        tabBtnKml.style.borderColor = '#10b981';
+        tabBtnKml.style.color = '#fff';
+
+        tabBtnVillage.style.background = 'transparent';
+        tabBtnVillage.style.borderColor = 'var(--card-border)';
+        tabBtnVillage.style.color = 'var(--text-muted)';
+
+        formKmlMode.style.display = 'block';
+        formVillageMode.style.display = 'none';
+    });
+
+    // 1. Village AOI Mode Submission
     analyzeBtn.addEventListener('click', () => {
         const village = document.getElementById('input-village').value.trim();
         const tehsil = document.getElementById('input-tehsil').value.trim();
@@ -500,6 +561,43 @@
         .finally(() => {
             loading.style.display = 'none';
             analyzeBtn.removeAttribute('disabled');
+        });
+    });
+
+    // 2. KML / KMZ Upload Mode Submission
+    analyzeKmlBtn.addEventListener('click', () => {
+        const fileInput = document.getElementById('input-kml');
+        if (!fileInput.files || fileInput.files.length === 0) {
+            alert('Please select a KML or KMZ contour map file first.');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        loading.style.display = 'flex';
+        analyzeKmlBtn.setAttribute('disabled', 'true');
+        clearMapLayers();
+
+        fetch('/analyzeContour', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.text().then(text => { throw new Error(text) });
+            }
+            return response.json();
+        })
+        .then(data => {
+            renderPlanningResults(data);
+        })
+        .catch(error => {
+            alert(`Contour Analysis Error: ${error.message}`);
+        })
+        .finally(() => {
+            loading.style.display = 'none';
+            analyzeKmlBtn.removeAttribute('disabled');
         });
     });
 

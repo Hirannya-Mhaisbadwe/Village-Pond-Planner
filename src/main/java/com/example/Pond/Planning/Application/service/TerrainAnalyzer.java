@@ -159,16 +159,6 @@ public class TerrainAnalyzer {
         SinkCandidate optimal = sinks.get(0);
         Coordinate3D pondLocation = new Coordinate3D(optimal.lat, optimal.lon, optimal.elevation);
 
-        List<ContourAnalysisResponse.SinkInfo> altSinks = new ArrayList<>();
-        for (int i = 1; i < Math.min(sinks.size(), 6); i++) {
-            SinkCandidate s = sinks.get(i);
-            altSinks.add(ContourAnalysisResponse.SinkInfo.builder()
-                    .location(new Coordinate3D(s.lat, s.lon, s.elevation))
-                    .catchmentAreaSqMeters(s.catchmentArea)
-                    .flowAccumulation(s.flowAccumulation)
-                    .build());
-        }
-
         // Hydrology & Sizing calculations
         List<int[]> catchmentGrid = computeCatchmentCells(optimal.r, optimal.c, flowDir, dr, dc);
         List<Coordinate3D> catchmentCells = new ArrayList<>();
@@ -187,9 +177,68 @@ public class TerrainAnalyzer {
         double recommendedDepthMeters = 3.0;
         double recommendedSideSlope = 1.5;
 
-        // Solve for trapezoidal square pond L:
-        // V = d * (L^2 - 2 * d * s * L + 4 * d^2 * s^2)
         double targetL = Math.sqrt(targetCapacityCuM / recommendedDepthMeters) + recommendedDepthMeters * recommendedSideSlope;
+        double pondSurfaceAreaSqMeters = targetL * targetL;
+        double pondSurfaceAreaHectares = pondSurfaceAreaSqMeters / 10000.0;
+
+        List<ContourAnalysisResponse.SuggestedPondLocation> suggestedPondLocations = new ArrayList<>();
+        suggestedPondLocations.add(ContourAnalysisResponse.SuggestedPondLocation.builder()
+                .rank(1)
+                .label("Optimal Pond Location (Primary)")
+                .location(pondLocation)
+                .recommendedDepthMeters(recommendedDepthMeters)
+                .pondSurfaceAreaSqMeters(pondSurfaceAreaSqMeters)
+                .pondSurfaceAreaHectares(pondSurfaceAreaHectares)
+                .recommendedLengthMeters(targetL)
+                .recommendedWidthMeters(targetL)
+                .recommendedSideSlope(recommendedSideSlope)
+                .estimatedStorageCapacityCuM(targetCapacityCuM)
+                .catchmentAreaSqMeters(optimal.catchmentArea)
+                .catchmentAreaHectares(optimal.catchmentArea / 10000.0)
+                .flowAccumulation(optimal.flowAccumulation)
+                .suitabilityScore(optimal.flowAccumulation)
+                .build());
+
+        List<ContourAnalysisResponse.SinkInfo> altSinks = new ArrayList<>();
+        for (int i = 1; i < Math.min(sinks.size(), 6); i++) {
+            SinkCandidate s = sinks.get(i);
+            double altRunoff = (runoffDepthMm / 1000.0) * s.catchmentArea;
+            double altCap = Math.min(altRunoff * 0.2, 3000.0);
+            if (altCap < 100.0) altCap = Math.max(altRunoff * 0.2, 500.0);
+            double altL = Math.sqrt(altCap / 3.0) + 3.0 * 1.5;
+            double altArea = altL * altL;
+
+            altSinks.add(ContourAnalysisResponse.SinkInfo.builder()
+                    .location(new Coordinate3D(s.lat, s.lon, s.elevation))
+                    .catchmentAreaSqMeters(s.catchmentArea)
+                    .flowAccumulation(s.flowAccumulation)
+                    .depthMeters(3.0)
+                    .surfaceAreaSqMeters(altArea)
+                    .lengthMeters(altL)
+                    .widthMeters(altL)
+                    .storageCapacityCuM(altCap)
+                    .suitabilityScore(s.flowAccumulation)
+                    .build());
+
+            if (i <= 2) {
+                suggestedPondLocations.add(ContourAnalysisResponse.SuggestedPondLocation.builder()
+                        .rank(i + 1)
+                        .label("Alternative Suggested Location #" + i)
+                        .location(new Coordinate3D(s.lat, s.lon, s.elevation))
+                        .recommendedDepthMeters(3.0)
+                        .pondSurfaceAreaSqMeters(altArea)
+                        .pondSurfaceAreaHectares(altArea / 10000.0)
+                        .recommendedLengthMeters(altL)
+                        .recommendedWidthMeters(altL)
+                        .recommendedSideSlope(1.5)
+                        .estimatedStorageCapacityCuM(altCap)
+                        .catchmentAreaSqMeters(s.catchmentArea)
+                        .catchmentAreaHectares(s.catchmentArea / 10000.0)
+                        .flowAccumulation(s.flowAccumulation)
+                        .suitabilityScore(s.flowAccumulation)
+                        .build());
+            }
+        }
 
         return ContourAnalysisResponse.builder()
                 .pondLocation(pondLocation)
@@ -198,6 +247,7 @@ public class TerrainAnalyzer {
                 .minElevation(minEle)
                 .maxElevation(maxEle)
                 .alternativeSinks(altSinks)
+                .suggestedPondLocations(suggestedPondLocations)
                 .minLatitude(minLat)
                 .maxLatitude(maxLat)
                 .minLongitude(minLon)
@@ -209,6 +259,8 @@ public class TerrainAnalyzer {
                 .recommendedLengthMeters(targetL)
                 .recommendedWidthMeters(targetL)
                 .recommendedSideSlope(recommendedSideSlope)
+                .pondSurfaceAreaSqMeters(pondSurfaceAreaSqMeters)
+                .pondSurfaceAreaHectares(pondSurfaceAreaHectares)
                 .estimatedStorageCapacityCuM(targetCapacityCuM)
                 .build();
     }

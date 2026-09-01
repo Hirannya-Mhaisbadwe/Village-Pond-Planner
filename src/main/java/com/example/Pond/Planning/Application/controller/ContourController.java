@@ -17,7 +17,6 @@ import java.io.InputStream;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/terrain")
 public class ContourController {
 
     @Autowired
@@ -29,7 +28,7 @@ public class ContourController {
     @Autowired
     private ContourService contourService;
 
-    @PostMapping("/getcontours")
+    @PostMapping({"/api/terrain/getcontours", "/getcontours"})
     public ResponseEntity<ContourResponse> generateContours(
             @RequestBody ContourRequest request) {
 
@@ -38,7 +37,14 @@ public class ContourController {
         );
     }
 
-    @PostMapping("/analyze-contour")
+    @PostMapping(value = {
+            "/analyzeContour",
+            "/findCatchment",
+            "/api/analyzeContour",
+            "/api/findCatchment",
+            "/api/terrain/analyze-contour",
+            "/api/terrain/analyzeContour"
+    }, consumes = {"multipart/form-data"})
     public ResponseEntity<?> analyzeContour(@RequestParam("file") MultipartFile file) {
         if (file.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Uploaded file is empty");
