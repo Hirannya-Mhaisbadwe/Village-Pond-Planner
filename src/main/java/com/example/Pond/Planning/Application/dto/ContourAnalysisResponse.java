@@ -28,8 +28,33 @@ public class ContourAnalysisResponse {
     private double recommendedLengthMeters;
     private double recommendedWidthMeters;
     private double recommendedSideSlope;
+    private double pondSurfaceAreaSqMeters;
+    private double pondSurfaceAreaHectares;
     private double estimatedStorageCapacityCuM;
+    private List<SuggestedPondLocation> suggestedPondLocations;
     private java.util.Map<String, Object> contoursGeoJson;
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class SuggestedPondLocation {
+        private int rank;
+        private String label;
+        private Coordinate3D location;
+        private double recommendedDepthMeters;
+        private double pondSurfaceAreaSqMeters;
+        private double pondSurfaceAreaHectares;
+        private double recommendedLengthMeters;
+        private double recommendedWidthMeters;
+        private double recommendedSideSlope;
+        private double estimatedStorageCapacityCuM;
+        private double catchmentAreaSqMeters;
+        private double catchmentAreaHectares;
+        private double flowAccumulation;
+        private double suitabilityScore;
+    }
 
     @Getter
     @Setter
@@ -40,5 +65,11 @@ public class ContourAnalysisResponse {
         private Coordinate3D location;
         private double catchmentAreaSqMeters;
         private double flowAccumulation;
+        private double depthMeters;
+        private double surfaceAreaSqMeters;
+        private double lengthMeters;
+        private double widthMeters;
+        private double storageCapacityCuM;
+        private double suitabilityScore;
     }
 }

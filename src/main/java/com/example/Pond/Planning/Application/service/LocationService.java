@@ -59,6 +59,22 @@ public class LocationService {
                 geoCodingClient.search2(village, tehsil);
 
         if (results == null || results.isEmpty()) {
+            results = geoCodingClient.search(village + ", " + tehsil);
+        }
+
+        if (results == null || results.isEmpty()) {
+            results = geoCodingClient.search(village + " " + tehsil);
+        }
+
+        if (results == null || results.isEmpty()) {
+            results = geoCodingClient.search(village);
+        }
+
+        if (results == null || results.isEmpty()) {
+            results = geoCodingClient.search(tehsil);
+        }
+
+        if (results == null || results.isEmpty()) {
             return List.of();
         }
 

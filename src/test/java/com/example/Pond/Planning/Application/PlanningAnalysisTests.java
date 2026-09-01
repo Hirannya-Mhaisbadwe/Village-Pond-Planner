@@ -92,6 +92,48 @@ class PlanningAnalysisTests {
                 .andExpect(jsonPath("$.annualRainfallMm").value(1200.0))
                 .andExpect(jsonPath("$.estimatedRunoffVolumeCuM").isNumber())
                 .andExpect(jsonPath("$.recommendedDepthMeters").value(3.0))
-                .andExpect(jsonPath("$.catchmentCells").isArray());
+                .andExpect(jsonPath("$.catchmentCells").isArray())
+                .andExpect(jsonPath("$.alternativeSinks").isArray());
+    }
+
+    @Test
+    void testPipelineModularEndpoint() throws Exception {
+        PondPlanningRequest request = PondPlanningRequest.builder()
+                .village("Anjora")
+                .tehsil("Durg")
+                .landCover(LandCoverType.AGRICULTURE)
+                .maxExcavationDepthM(3.5)
+                .excavationStepM(0.5)
+                .freeboardM(0.5)
+                .build();
+
+        mockMvc.perform(post("/api/planning/pipeline")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.village").value("Anjora"))
+                .andExpect(jsonPath("$.tehsil").value("Durg"))
+                .andExpect(jsonPath("$.latitude").value(21.2))
+                .andExpect(jsonPath("$.longitude").value(81.3))
+                .andExpect(jsonPath("$.selectedCandidate").exists())
+                .andExpect(jsonPath("$.catchment.areaSquareMeters").isNumber())
+                .andExpect(jsonPath("$.rainfall.averageAnnualRainfallMm").value(1200.0))
+                .andExpect(jsonPath("$.runoff.runoffVolumeM3").isNumber())
+                .andExpect(jsonPath("$.pondDesign").exists());
+    }
+
+    @Test
+    void testMissingLocationError() throws Exception {
+        PlanningRequest request = new PlanningRequest();
+        request.setVillage("NonExistentVillage");
+        request.setTehsil("UnknownTehsil");
+
+        Mockito.when(locationService.searchLocations2("NonExistentVillage", "UnknownTehsil")).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/planning/analyze")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").exists());
     }
 }
