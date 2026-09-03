@@ -45,15 +45,15 @@ public class ContourController {
             "/api/terrain/analyze-contour",
             "/api/terrain/analyzeContour"
     }, consumes = {"multipart/form-data"})
-    public ResponseEntity<?> analyzeContour(@RequestParam("file") MultipartFile file) {
-        if (file.isEmpty()) {
+    public ResponseEntity<?> analyzeContour(@RequestParam("contour_map") MultipartFile contourMap) {
+        if (contourMap.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Uploaded file is empty");
         }
 
-        String originalFilename = file.getOriginalFilename();
+        String originalFilename = contourMap.getOriginalFilename();
         boolean isKmz = originalFilename != null && originalFilename.toLowerCase().endsWith(".kmz");
 
-        try (InputStream inputStream = file.getInputStream()) {
+        try (InputStream inputStream = contourMap.getInputStream()) {
             List<Coordinate3D> parsedPoints = kmlParser.parse(inputStream, isKmz);
             ContourAnalysisResponse response = terrainAnalyzer.analyze(parsedPoints);
             return ResponseEntity.ok(response);

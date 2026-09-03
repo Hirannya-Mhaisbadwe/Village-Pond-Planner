@@ -96,9 +96,26 @@ class ContourAnalysisTests {
     }
 
     @Test
+    void testContourAnalysisControllerWithContourMapParam() throws Exception {
+        MockMultipartFile multipartFile = new MockMultipartFile(
+                "contour_map",
+                "sample.kml",
+                "application/vnd.google-earth.kml+xml",
+                SAMPLE_KML.getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(multipart("/analyzeContour").file(multipartFile))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pondLocation").exists())
+                .andExpect(jsonPath("$.catchmentAreaSqMeters").isNumber())
+                .andExpect(jsonPath("$.minElevation").value(295.0))
+                .andExpect(jsonPath("$.maxElevation").value(300.0));
+    }
+
+    @Test
     void testContourAnalysisController() throws Exception {
         MockMultipartFile multipartFile = new MockMultipartFile(
-                "file",
+                "contour_map",
                 "sample.kml",
                 "application/vnd.google-earth.kml+xml",
                 SAMPLE_KML.getBytes(StandardCharsets.UTF_8)

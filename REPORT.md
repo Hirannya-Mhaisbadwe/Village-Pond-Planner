@@ -97,17 +97,17 @@ The provided sample map `contours_1m.kml` ($6.71\text{ MB}$, containing $160,473
 
 #### Test against Live Render Deployment:
 ```powershell
-curl.exe -X POST https://village-pond-planner.onrender.com/analyzeContour -F "file=@contours_1m.kml"
+curl.exe -X POST https://village-pond-planner.onrender.com/analyzeContour -F "contour_map=@contours_1m.kml"
 ```
 
 #### Test against Localhost:
 ```powershell
-curl.exe -X POST http://localhost:8080/analyzeContour -F "file=@contours_1m.kml"
+curl.exe -X POST http://localhost:8080/analyzeContour -F "contour_map=@contours_1m.kml"
 ```
 
 *Native PowerShell equivalent:*
 ```powershell
-Invoke-RestMethod -Uri "https://village-pond-planner.onrender.com/analyzeContour" -Method Post -Form @{ file = Get-Item "contours_1m.kml" }
+Invoke-RestMethod -Uri "https://village-pond-planner.onrender.com/analyzeContour" -Method Post -Form @{ contour_map = Get-Item "contours_1m.kml" }
 ```
 
 ### Actual Output Metrics (Derived from `contours_1m.kml`)
@@ -137,7 +137,7 @@ Invoke-RestMethod -Uri "https://village-pond-planner.onrender.com/analyzeContour
 #### Request Parameters
 | Parameter | Type | Required | Description |
 | :--- | :--- | :---: | :--- |
-| `file` | `File (Binary)` | **Yes** | The `.kml` or `.kmz` contour map file to be analyzed. |
+| `contour_map` | `File (Binary)` | **Yes** | The `.kml` or `.kmz` contour map file to be analyzed (variable name: `contour_map`, legacy `file` supported). |
 
 #### HTTP Status Codes
 | Code | Status | Description |
