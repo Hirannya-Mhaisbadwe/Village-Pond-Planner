@@ -58,24 +58,15 @@ public class ElevationClient {
                         .retrieve()
                         .body(ElevationResponse.class);
 
-                if (batchResponse != null && batchResponse.getElevation() != null) {
-                    allElevations.addAll(batchResponse.getElevation());
-                } else {
-                    for (int k = 0; k < subList.size(); k++) allElevations.add(280.0);
+                if (batchResponse == null || batchResponse.getElevation() == null
+                        || batchResponse.getElevation().size() != subList.size()
+                        || batchResponse.getElevation().stream().anyMatch(value -> value == null || !Double.isFinite(value))) {
+                    throw new IllegalStateException("Elevation provider returned incomplete terrain data");
                 }
+                allElevations.addAll(batchResponse.getElevation());
             } catch (Exception e) {
-                System.err.println("Elevation API batch request warning: " + e.getMessage());
-                // Fallback: estimate based on first coordinate or smooth slope
-                double fallbackEle = allElevations.isEmpty() ? 280.0 : allElevations.get(allElevations.size() - 1);
-                for (int k = 0; k < subList.size(); k++) {
-                    allElevations.add(fallbackEle + Math.sin((i + k) * 0.1) * 2.0);
-                }
+                throw new IllegalStateException("Unable to retrieve verified elevation data", e);
             }
-
-            // Small throttle to avoid hitting Open-Meteo minutely limit
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException ignored) {}
         }
 
         ElevationResponse finalResponse = new ElevationResponse();
