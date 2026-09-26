@@ -1,5 +1,6 @@
 package com.example.Pond.Planning.Application.client;
 
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import java.util.List;
@@ -14,6 +15,7 @@ public class WeatherClient {
         this.restClient = restClient;
     }
 
+    @Cacheable(value = "rainfall", key = "T(java.lang.Math).round(#latitude * 100) + '_' + T(java.lang.Math).round(#longitude * 100)", unless = "#result <= 0.0")
     public double getAverageAnnualRainfall(double latitude, double longitude) {
         try {
             // Fetch 3 full years of historical data (e.g., 2021 to 2023)

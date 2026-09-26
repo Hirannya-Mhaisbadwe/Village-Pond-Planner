@@ -1,5 +1,6 @@
 package com.example.Pond.Planning.Application.service;
 
+import com.example.Pond.Planning.Application.client.WeatherClient;
 import com.example.Pond.Planning.Application.dto.Coordinate3D;
 import com.example.Pond.Planning.Application.dto.ContourAnalysisResponse;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,19 @@ public class TerrainAnalyzer {
     private static final int GRID_SIZE = 50; // 50x50 grid
     private static final int IDW_NEIGHBORS = 12; // K-nearest neighbors for IDW
     private static final double POWER = 2.0; // IDW power parameter
+
+    private final WeatherClient weatherClient;
+    private final CurveNumberService curveNumberService;
+    private final PondSizingService pondSizingService;
+
+    public TerrainAnalyzer(
+            WeatherClient weatherClient,
+            CurveNumberService curveNumberService,
+            PondSizingService pondSizingService) {
+        this.weatherClient = weatherClient;
+        this.curveNumberService = curveNumberService;
+        this.pondSizingService = pondSizingService;
+    }
 
     public ContourAnalysisResponse analyze(List<Coordinate3D> points) {
         if (points == null || points.isEmpty()) {
@@ -169,17 +183,39 @@ public class TerrainAnalyzer {
             catchmentCells.add(new Coordinate3D(cellLat, cellLon, ele));
         }
 
+        double avgLon = (minLon + maxLon) / 2.0;
         double annualRainfallMm = 1100.0;
-        double runoffDepthMm = 1004.5;
+        if (weatherClient != null) {
+            try {
+                annualRainfallMm = weatherClient.getAverageAnnualRainfall(avgLat, avgLon);
+            } catch (Exception e) {
+                // Fallback to default
+            }
+        }
+
+        // Default to Agriculture / Loamy soil (CN 78) for contour terrain estimation
+        int defaultCurveNumber = (curveNumberService != null) ? curveNumberService.getCurveNumber(null, null) : 78;
+        double runoffDepthMm = (curveNumberService != null)
+                ? curveNumberService.calculateRunoffDepthMm(annualRainfallMm, defaultCurveNumber)
+                : annualRainfallMm * 0.35;
         double estimatedRunoffVolumeCuM = (runoffDepthMm / 1000.0) * optimal.catchmentArea;
 
         double targetCapacityCuM = Math.min(estimatedRunoffVolumeCuM * 0.2, 3000.0);
+        if (targetCapacityCuM < 100.0) {
+            targetCapacityCuM = Math.max(estimatedRunoffVolumeCuM * 0.2, 500.0);
+        }
         double recommendedDepthMeters = 3.0;
         double recommendedSideSlope = 1.5;
 
-        double targetL = Math.sqrt(targetCapacityCuM / recommendedDepthMeters) + recommendedDepthMeters * recommendedSideSlope;
-        double pondSurfaceAreaSqMeters = targetL * targetL;
+        PondSizingService.FrustumDesign primaryDesign = (pondSizingService != null)
+                ? pondSizingService.computePrismoidalDesign(targetCapacityCuM, recommendedDepthMeters, recommendedSideSlope, 0.5, "Loamy")
+                : null;
+
+        double targetL = (primaryDesign != null) ? primaryDesign.getTopLengthM() : (Math.sqrt(targetCapacityCuM / recommendedDepthMeters) + recommendedDepthMeters * recommendedSideSlope);
+        double targetW = (primaryDesign != null) ? primaryDesign.getTopWidthM() : targetL;
+        double pondSurfaceAreaSqMeters = (primaryDesign != null) ? primaryDesign.getSurfaceAreaM2() : (targetL * targetW);
         double pondSurfaceAreaHectares = pondSurfaceAreaSqMeters / 10000.0;
+        double actualGrossStorage = (primaryDesign != null) ? primaryDesign.getGrossStorageM3() : targetCapacityCuM;
 
         List<ContourAnalysisResponse.SuggestedPondLocation> suggestedPondLocations = new ArrayList<>();
         suggestedPondLocations.add(ContourAnalysisResponse.SuggestedPondLocation.builder()
@@ -190,9 +226,9 @@ public class TerrainAnalyzer {
                 .pondSurfaceAreaSqMeters(pondSurfaceAreaSqMeters)
                 .pondSurfaceAreaHectares(pondSurfaceAreaHectares)
                 .recommendedLengthMeters(targetL)
-                .recommendedWidthMeters(targetL)
+                .recommendedWidthMeters(targetW)
                 .recommendedSideSlope(recommendedSideSlope)
-                .estimatedStorageCapacityCuM(targetCapacityCuM)
+                .estimatedStorageCapacityCuM(actualGrossStorage)
                 .catchmentAreaSqMeters(optimal.catchmentArea)
                 .catchmentAreaHectares(optimal.catchmentArea / 10000.0)
                 .flowAccumulation(optimal.flowAccumulation)
@@ -205,8 +241,15 @@ public class TerrainAnalyzer {
             double altRunoff = (runoffDepthMm / 1000.0) * s.catchmentArea;
             double altCap = Math.min(altRunoff * 0.2, 3000.0);
             if (altCap < 100.0) altCap = Math.max(altRunoff * 0.2, 500.0);
-            double altL = Math.sqrt(altCap / 3.0) + 3.0 * 1.5;
-            double altArea = altL * altL;
+
+            PondSizingService.FrustumDesign altDesign = (pondSizingService != null)
+                    ? pondSizingService.computePrismoidalDesign(altCap, 3.0, 1.5, 0.5, "Loamy")
+                    : null;
+
+            double altL = (altDesign != null) ? altDesign.getTopLengthM() : (Math.sqrt(altCap / 3.0) + 3.0 * 1.5);
+            double altW = (altDesign != null) ? altDesign.getTopWidthM() : altL;
+            double altArea = (altDesign != null) ? altDesign.getSurfaceAreaM2() : (altL * altW);
+            double altGrossCap = (altDesign != null) ? altDesign.getGrossStorageM3() : altCap;
 
             altSinks.add(ContourAnalysisResponse.SinkInfo.builder()
                     .location(new Coordinate3D(s.lat, s.lon, s.elevation))
@@ -215,8 +258,8 @@ public class TerrainAnalyzer {
                     .depthMeters(3.0)
                     .surfaceAreaSqMeters(altArea)
                     .lengthMeters(altL)
-                    .widthMeters(altL)
-                    .storageCapacityCuM(altCap)
+                    .widthMeters(altW)
+                    .storageCapacityCuM(altGrossCap)
                     .suitabilityScore(s.flowAccumulation)
                     .build());
 
@@ -229,9 +272,9 @@ public class TerrainAnalyzer {
                         .pondSurfaceAreaSqMeters(altArea)
                         .pondSurfaceAreaHectares(altArea / 10000.0)
                         .recommendedLengthMeters(altL)
-                        .recommendedWidthMeters(altL)
+                        .recommendedWidthMeters(altW)
                         .recommendedSideSlope(1.5)
-                        .estimatedStorageCapacityCuM(altCap)
+                        .estimatedStorageCapacityCuM(altGrossCap)
                         .catchmentAreaSqMeters(s.catchmentArea)
                         .catchmentAreaHectares(s.catchmentArea / 10000.0)
                         .flowAccumulation(s.flowAccumulation)

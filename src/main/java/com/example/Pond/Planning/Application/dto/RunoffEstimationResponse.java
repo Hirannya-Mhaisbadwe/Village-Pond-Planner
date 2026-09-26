@@ -17,6 +17,14 @@ public class RunoffEstimationResponse {
 
     private LandCoverType landCover;
 
+    private SoilType soilType;
+
+    private int curveNumber;
+
+    private double potentialRetentionMm;
+
+    private double runoffDepthMm;
+
     private double runoffCoefficient;
 
     private double runoffVolumeM3;

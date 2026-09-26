@@ -1,5 +1,6 @@
 package com.example.Pond.Planning.Application.client;
 
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -12,6 +13,7 @@ public class OpenTopographyClient {
         this.restClient = restClient;
     }
 
+    @Cacheable(value = "elevationGrids", key = "#minLat + '_' + #maxLat + '_' + #minLon + '_' + #maxLon", unless = "#result == null")
     public byte[] getNasademGeoTiff(double minLat, double maxLat, double minLon, double maxLon) {
         try {
             return restClient.get()

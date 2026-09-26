@@ -6,6 +6,7 @@ import com.example.Pond.Planning.Application.client.OpenTopographyClient;
 import com.example.Pond.Planning.Application.client.WeatherClient;
 import com.example.Pond.Planning.Application.dto.*;
 import com.example.Pond.Planning.Application.dto.external.ElevationResponse;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
@@ -31,6 +32,7 @@ public class PlanningService {
     private final RainfallService rainfallService;
     private final RunoffEstimationService runoffEstimationService;
     private final PondSizingService pondSizingService;
+    private final ProjectService projectService;
 
     public PlanningService(
             LocationService locationService,
@@ -46,7 +48,8 @@ public class PlanningService {
             WeatherClient weatherClient,
             RainfallService rainfallService,
             RunoffEstimationService runoffEstimationService,
-            PondSizingService pondSizingService) {
+            PondSizingService pondSizingService,
+            ProjectService projectService) {
         this.locationService = locationService;
         this.aoiService = aoiService;
         this.appeearsClient = appeearsClient;
@@ -61,6 +64,7 @@ public class PlanningService {
         this.rainfallService = rainfallService;
         this.runoffEstimationService = runoffEstimationService;
         this.pondSizingService = pondSizingService;
+        this.projectService = projectService;
     }
 
     public ContourAnalysisResponse analyze(PlanningRequest request) {
@@ -145,17 +149,19 @@ public class PlanningService {
         // 8. Historical Rainfall
         double annualRainfallMm = weatherClient.getAverageAnnualRainfall(centerLat, centerLon);
 
-        // 9. Land Cover & Runoff Estimation
+        // 9. Land Cover & Runoff Estimation (SCS-CN Method with Soil Type)
         LandCoverType landCoverType = parseLandCover(request.getLandCover());
+        SoilType soilType = SoilType.fromString(request.getSoilType());
         RunoffEstimationResponse runoff = runoffEstimationService.estimateRunoff(
                 RunoffEstimationRequest.builder()
                         .catchmentAreaM2(catchment.getAreaSquareMeters())
                         .rainfallMm(annualRainfallMm)
                         .landCover(landCoverType)
+                        .soilType(soilType)
                         .build()
         );
 
-        // 10. Pond Sizing & Design
+        // 10. Pond Sizing & Design (Prismoidal Frustum with Side Slopes)
         double recommendedDepthMeters = 3.0;
         double recommendedSideSlope = 1.5;
         double estimatedRunoffVolumeCuM = runoff.getRunoffVolumeM3();
@@ -164,9 +170,19 @@ public class PlanningService {
             targetCapacityCuM = Math.max(estimatedRunoffVolumeCuM * 0.2, 500.0);
         }
 
-        double targetL = Math.sqrt(targetCapacityCuM / recommendedDepthMeters) + recommendedDepthMeters * recommendedSideSlope;
-        double pondSurfaceAreaSqMeters = targetL * targetL;
-        double pondSurfaceAreaHectares = pondSurfaceAreaSqMeters / 10000.0;
+        PondSizingService.FrustumDesign primaryDesign = pondSizingService.computePrismoidalDesign(
+                targetCapacityCuM,
+                recommendedDepthMeters,
+                recommendedSideSlope,
+                0.5,
+                request.getSoilType()
+        );
+
+        double targetL = primaryDesign.getTopLengthM();
+        double targetW = primaryDesign.getTopWidthM();
+        double pondSurfaceAreaSqMeters = primaryDesign.getSurfaceAreaM2();
+        double pondSurfaceAreaHectares = primaryDesign.getSurfaceAreaHa();
+        double actualStorageCapacityCuM = primaryDesign.getGrossStorageM3();
 
         // 11. Format Final Response
         List<Coordinate3D> catchmentCells = catchment.getCells().stream()
@@ -184,9 +200,9 @@ public class PlanningService {
                 .pondSurfaceAreaSqMeters(pondSurfaceAreaSqMeters)
                 .pondSurfaceAreaHectares(pondSurfaceAreaHectares)
                 .recommendedLengthMeters(targetL)
-                .recommendedWidthMeters(targetL)
+                .recommendedWidthMeters(targetW)
                 .recommendedSideSlope(recommendedSideSlope)
-                .estimatedStorageCapacityCuM(targetCapacityCuM)
+                .estimatedStorageCapacityCuM(actualStorageCapacityCuM)
                 .catchmentAreaSqMeters(catchment.getAreaSquareMeters())
                 .catchmentAreaHectares(catchment.getAreaHectares())
                 .flowAccumulation(optimalCandidate.getFlowAccumulation())
@@ -208,20 +224,26 @@ public class PlanningService {
             );
 
             double altRunoffCuM = (annualRainfallMm / 1000.0) * altCatchment.getAreaSquareMeters() * runoff.getRunoffCoefficient();
-            double altCapacityCuM = Math.min(altRunoffCuM * 0.2, 3000.0);
-            if (altCapacityCuM < 100.0) altCapacityCuM = Math.max(altRunoffCuM * 0.2, 500.0);
-            double altL = Math.sqrt(altCapacityCuM / 3.0) + 3.0 * 1.5;
-            double altArea = altL * altL;
+            double altTargetCap = Math.min(altRunoffCuM * 0.2, 3000.0);
+            if (altTargetCap < 100.0) altTargetCap = Math.max(altRunoffCuM * 0.2, 500.0);
+
+            PondSizingService.FrustumDesign altDesign = pondSizingService.computePrismoidalDesign(
+                    altTargetCap,
+                    3.0,
+                    1.5,
+                    0.5,
+                    request.getSoilType()
+            );
 
             ContourAnalysisResponse.SinkInfo sinkInfo = ContourAnalysisResponse.SinkInfo.builder()
                     .location(new Coordinate3D(alt.getLatitude(), alt.getLongitude(), alt.getElevation()))
                     .catchmentAreaSqMeters(altCatchment.getAreaSquareMeters())
                     .flowAccumulation(alt.getFlowAccumulation())
                     .depthMeters(3.0)
-                    .surfaceAreaSqMeters(altArea)
-                    .lengthMeters(altL)
-                    .widthMeters(altL)
-                    .storageCapacityCuM(altCapacityCuM)
+                    .surfaceAreaSqMeters(altDesign.getSurfaceAreaM2())
+                    .lengthMeters(altDesign.getTopLengthM())
+                    .widthMeters(altDesign.getTopWidthM())
+                    .storageCapacityCuM(altDesign.getGrossStorageM3())
                     .suitabilityScore(alt.getSuitabilityScore())
                     .build();
             alternativeSinks.add(sinkInfo);
@@ -231,12 +253,12 @@ public class PlanningService {
                     .label("Alternative Suggested Location #" + i)
                     .location(new Coordinate3D(alt.getLatitude(), alt.getLongitude(), alt.getElevation()))
                     .recommendedDepthMeters(3.0)
-                    .pondSurfaceAreaSqMeters(altArea)
-                    .pondSurfaceAreaHectares(altArea / 10000.0)
-                    .recommendedLengthMeters(altL)
-                    .recommendedWidthMeters(altL)
+                    .pondSurfaceAreaSqMeters(altDesign.getSurfaceAreaM2())
+                    .pondSurfaceAreaHectares(altDesign.getSurfaceAreaHa())
+                    .recommendedLengthMeters(altDesign.getTopLengthM())
+                    .recommendedWidthMeters(altDesign.getTopWidthM())
                     .recommendedSideSlope(1.5)
-                    .estimatedStorageCapacityCuM(altCapacityCuM)
+                    .estimatedStorageCapacityCuM(altDesign.getGrossStorageM3())
                     .catchmentAreaSqMeters(altCatchment.getAreaSquareMeters())
                     .catchmentAreaHectares(altCatchment.getAreaHectares())
                     .flowAccumulation(alt.getFlowAccumulation())
@@ -250,7 +272,7 @@ public class PlanningService {
                 optimalCandidate.getElevation()
         );
 
-        return ContourAnalysisResponse.builder()
+        ContourAnalysisResponse response = ContourAnalysisResponse.builder()
                 .pondLocation(pondLocation)
                 .catchmentAreaSqMeters(catchment.getAreaSquareMeters())
                 .catchmentAreaHectares(catchment.getAreaHectares())
@@ -273,6 +295,14 @@ public class PlanningService {
                 .pondSurfaceAreaHectares(pondSurfaceAreaHectares)
                 .estimatedStorageCapacityCuM(targetCapacityCuM)
                 .build();
+
+        try {
+            projectService.saveVillagePlanningProject(request, response);
+        } catch (Exception e) {
+            System.err.println("Warning: Could not persist village planning study: " + e.getMessage());
+        }
+
+        return response;
     }
 
     public PondPlanningResponse executePipeline(PondPlanningRequest request) throws Exception {

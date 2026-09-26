@@ -6,6 +6,7 @@ import com.example.Pond.Planning.Application.dto.ContourPoint;
 import com.example.Pond.Planning.Application.dto.ContourRequest;
 import com.example.Pond.Planning.Application.dto.ContourResponse;
 import com.example.Pond.Planning.Application.dto.ElevationGrid;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.List;
 @Service
 public class ContourService {
 
+    @Cacheable(value = "contours", key = "#request.contourInterval + '_' + (#request.elevationGrid != null ? #request.elevationGrid.hashCode() : 0)", unless = "#result == null")
     public ContourResponse generateContours(
             ContourRequest request) {
 

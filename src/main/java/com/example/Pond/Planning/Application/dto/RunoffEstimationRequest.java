@@ -16,21 +16,16 @@ public class RunoffEstimationRequest {
 
     /*
      * Rainfall in millimeters.
-     *
-     * Initially we will use average annual rainfall.
      */
     private double rainfallMm;
 
     /*
      * Type of land cover in the catchment.
-     *
-     * Examples:
-     * FOREST
-     * GRASSLAND
-     * AGRICULTURE
-     * BARE_SOIL
-     * ROCKY
-     * BUILT_UP
      */
     private LandCoverType landCover;
+
+    /*
+     * Soil texture (Sandy, Loamy, Clayey).
+     */
+    private SoilType soilType;
 }

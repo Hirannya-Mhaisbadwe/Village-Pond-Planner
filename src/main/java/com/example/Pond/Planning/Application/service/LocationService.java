@@ -4,6 +4,7 @@ import com.example.Pond.Planning.Application.client.GeoCodingClient;
 import com.example.Pond.Planning.Application.dto.LocationSearchRequest;
 import com.example.Pond.Planning.Application.dto.LocationSearchResponse;
 import com.example.Pond.Planning.Application.dto.external.NominatimResponse;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -51,6 +52,7 @@ public class LocationService {
 ////        return results;
 //    }
 
+    @Cacheable(value = "locations", key = "#village.trim().toLowerCase() + '_' + #tehsil.trim().toLowerCase()", unless = "#result == null || #result.isEmpty()")
     public List<LocationSearchResponse> searchLocations2(
             String village,
             String tehsil

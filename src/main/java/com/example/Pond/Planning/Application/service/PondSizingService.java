@@ -475,6 +475,103 @@ public class PondSizingService {
 
 
     // ==================================================
+    // Prismoidal Frustum Sizing & Water Balance
+    // ==================================================
+
+    public FrustumDesign computePrismoidalDesign(
+            double targetStorageCapacityM3,
+            double waterDepthM,
+            double sideSlope,
+            double freeboardM,
+            String soilType) {
+
+        double depth = waterDepthM > 0 ? waterDepthM : 3.0;
+        double slope = sideSlope > 0 ? sideSlope : 1.5;
+        double fb = freeboardM >= 0 ? freeboardM : 0.5;
+        double totalDepth = depth + fb;
+        double targetV = Math.max(targetStorageCapacityM3, 100.0);
+
+        // Solve quadratic equation for bottom width b:
+        // V = depth * b^2 + 2 * slope * depth^2 * b + (4.0/3.0) * slope^2 * depth^3
+        double A = depth;
+        double B = 2.0 * slope * depth * depth;
+        double C = (4.0 / 3.0) * slope * slope * Math.pow(depth, 3) - targetV;
+
+        double discriminant = B * B - 4.0 * A * C;
+        double b = 2.0; // fallback minimum bottom dimension
+
+        if (discriminant >= 0) {
+            double root = (-B + Math.sqrt(discriminant)) / (2.0 * A);
+            if (root > 0) {
+                b = root;
+            }
+        }
+
+        double topLength = b + 2.0 * slope * totalDepth;
+        double topWidth = b + 2.0 * slope * totalDepth;
+        double surfaceAreaM2 = topLength * topWidth;
+        double surfaceAreaHa = surfaceAreaM2 / 10000.0;
+
+        // Actual gross storage using prismoidal formula
+        double bottomArea = b * b;
+        double waterTopArea = Math.pow(b + 2.0 * slope * depth, 2);
+        double actualGrossStorage = (depth / 3.0) * (bottomArea + waterTopArea + Math.sqrt(bottomArea * waterTopArea));
+
+        // Evaporation & Seepage loss modeling
+        double annualEvapRateM = 1.6; // average pan evaporation depth in semi-arid/tropical India
+        double avgWaterSurfaceArea = (bottomArea + waterTopArea) / 2.0;
+        double evaporationLossM3 = avgWaterSurfaceArea * annualEvapRateM * 0.45; // effective dry-season exposure
+
+        double seepageRate = 0.12; // default loam
+        if (soilType != null) {
+            String s = soilType.toUpperCase();
+            if (s.contains("SAND")) seepageRate = 0.25;
+            else if (s.contains("CLAY")) seepageRate = 0.05;
+        }
+        double seepageLossM3 = actualGrossStorage * seepageRate;
+
+        double netUsableStorageM3 = Math.max(actualGrossStorage - evaporationLossM3 - seepageLossM3, actualGrossStorage * 0.40);
+
+        return FrustumDesign.builder()
+                .bottomLengthM(b)
+                .bottomWidthM(b)
+                .topLengthM(topLength)
+                .topWidthM(topWidth)
+                .waterDepthM(depth)
+                .totalExcavationDepthM(totalDepth)
+                .sideSlope(slope)
+                .freeboardM(fb)
+                .surfaceAreaM2(surfaceAreaM2)
+                .surfaceAreaHa(surfaceAreaHa)
+                .grossStorageM3(actualGrossStorage)
+                .evaporationLossM3(evaporationLossM3)
+                .seepageLossM3(seepageLossM3)
+                .netUsableStorageM3(netUsableStorageM3)
+                .build();
+    }
+
+    @lombok.Getter
+    @lombok.Builder
+    @lombok.AllArgsConstructor
+    @lombok.NoArgsConstructor
+    public static class FrustumDesign {
+        private double bottomLengthM;
+        private double bottomWidthM;
+        private double topLengthM;
+        private double topWidthM;
+        private double waterDepthM;
+        private double totalExcavationDepthM;
+        private double sideSlope;
+        private double freeboardM;
+        private double surfaceAreaM2;
+        private double surfaceAreaHa;
+        private double grossStorageM3;
+        private double evaporationLossM3;
+        private double seepageLossM3;
+        private double netUsableStorageM3;
+    }
+
+    // ==================================================
     // Internal geometry class
     // ==================================================
 
