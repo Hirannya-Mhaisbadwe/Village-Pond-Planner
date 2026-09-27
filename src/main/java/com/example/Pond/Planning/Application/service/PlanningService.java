@@ -33,6 +33,7 @@ public class PlanningService {
     private final RunoffEstimationService runoffEstimationService;
     private final PondSizingService pondSizingService;
     private final ProjectService projectService;
+    private final HydrologyEngineService hydrologyEngineService;
 
     public PlanningService(
             LocationService locationService,
@@ -49,7 +50,8 @@ public class PlanningService {
             RainfallService rainfallService,
             RunoffEstimationService runoffEstimationService,
             PondSizingService pondSizingService,
-            ProjectService projectService) {
+            ProjectService projectService,
+            HydrologyEngineService hydrologyEngineService) {
         this.locationService = locationService;
         this.aoiService = aoiService;
         this.appeearsClient = appeearsClient;
@@ -65,6 +67,7 @@ public class PlanningService {
         this.runoffEstimationService = runoffEstimationService;
         this.pondSizingService = pondSizingService;
         this.projectService = projectService;
+        this.hydrologyEngineService = hydrologyEngineService;
     }
 
     public ContourAnalysisResponse analyze(PlanningRequest request) {
@@ -107,49 +110,23 @@ public class PlanningService {
         double east = aoi.getEast();
         double west = aoi.getWest();
 
-        // 3. Elevation Grid
-        ElevationGrid elevationGrid = fetchOrBuildElevationGrid(north, south, east, west);
+        // 3. Dynamic Adaptive Elevation Grid Resolution (~25m physical cell resolution, clamped 20-50)
+        double targetResolutionMeters = 25.0;
+        int gridRows = Math.clamp((int) Math.round(widthMeters / targetResolutionMeters), 20, 50);
+        int gridCols = Math.clamp((int) Math.round(lengthMeters / targetResolutionMeters), 20, 50);
 
-        // 4. D8 Flow Direction
-        FlowDirectionGrid flowDirectionGrid = flowDirectionService.calculateFlowDirection(elevationGrid);
+        ElevationGrid elevationGrid = fetchOrBuildElevationGrid(north, south, east, west, gridRows, gridCols);
 
-        // 5. Flow Accumulation
-        FlowAccumulationGrid flowAccumulationGrid = flowAccumulationService.calculateFlowAccumulation(flowDirectionGrid);
-
-        // 6. Pond Candidate Selection
-        PondCandidateResponse candidateResponse = pondCandidateService.findCandidates(
-                PondCandidateRequest.builder()
-                        .elevationGrid(elevationGrid)
-                        .flowAccumulationGrid(flowAccumulationGrid)
-                        .minimumDistanceMeters(200.0)
-                        .build()
-        );
-
-        List<PondCandidate> candidates = candidateResponse.getCandidates();
-        if (candidates == null || candidates.isEmpty()) {
-            throw new IllegalStateException("No suitable pond candidate sites found in the specified area.");
-        }
-
+        // 4. Unified GIS Pipeline (Depression Filling -> D8 Flow -> Accumulation -> Multi-Criteria Candidates -> Catchment)
+        HydrologyEngineService.HydrologyResult hydro = hydrologyEngineService.executePipeline(elevationGrid, 200.0);
+        List<PondCandidate> candidates = hydro.getCandidates();
         PondCandidate optimalCandidate = candidates.get(0);
+        CatchmentResponse catchment = hydro.getPrimaryCatchment();
 
-        // Map candidate to closest row/col in elevation grid
-        int pondRow = findClosestLatitudeIndex(elevationGrid, optimalCandidate.getLatitude());
-        int pondCol = findClosestLongitudeIndex(elevationGrid, optimalCandidate.getLongitude());
-
-        // 7. Catchment Delineation
-        CatchmentResponse catchment = catchmentService.calculateCatchment(
-                CatchmentRequest.builder()
-                        .elevationGrid(elevationGrid)
-                        .flowDirectionGrid(flowDirectionGrid)
-                        .pondRow(pondRow)
-                        .pondColumn(pondCol)
-                        .build()
-        );
-
-        // 8. Historical Rainfall
+        // 5. Historical Rainfall
         double annualRainfallMm = weatherClient.getAverageAnnualRainfall(centerLat, centerLon);
 
-        // 9. Land Cover & Runoff Estimation (SCS-CN Method with Soil Type)
+        // 6. Land Cover & Runoff Estimation (SCS-CN Method with Soil Type)
         LandCoverType landCoverType = parseLandCover(request.getLandCover());
         SoilType soilType = SoilType.fromString(request.getSoilType());
         RunoffEstimationResponse runoff = runoffEstimationService.estimateRunoff(
@@ -210,18 +187,11 @@ public class PlanningService {
                 .build());
 
         List<ContourAnalysisResponse.SinkInfo> alternativeSinks = new ArrayList<>();
+        List<CatchmentResponse> altCatchments = hydro.getAlternativeCatchments();
+
         for (int i = 1; i < candidates.size(); i++) {
             PondCandidate alt = candidates.get(i);
-            int altRow = findClosestLatitudeIndex(elevationGrid, alt.getLatitude());
-            int altCol = findClosestLongitudeIndex(elevationGrid, alt.getLongitude());
-            CatchmentResponse altCatchment = catchmentService.calculateCatchment(
-                    CatchmentRequest.builder()
-                            .elevationGrid(elevationGrid)
-                            .flowDirectionGrid(flowDirectionGrid)
-                            .pondRow(altRow)
-                            .pondColumn(altCol)
-                            .build()
-            );
+            CatchmentResponse altCatchment = (i - 1 < altCatchments.size()) ? altCatchments.get(i - 1) : catchment;
 
             double altRunoffCuM = (annualRainfallMm / 1000.0) * altCatchment.getAreaSquareMeters() * runoff.getRunoffCoefficient();
             double altTargetCap = Math.min(altRunoffCuM * 0.2, 3000.0);
@@ -338,7 +308,7 @@ public class PlanningService {
         );
 
         // 3. Elevation Grid
-        ElevationGrid elevationGrid = fetchOrBuildElevationGrid(aoi.getNorth(), aoi.getSouth(), aoi.getEast(), aoi.getWest());
+        ElevationGrid elevationGrid = fetchOrBuildElevationGrid(aoi.getNorth(), aoi.getSouth(), aoi.getEast(), aoi.getWest(), 30, 30);
 
         // 4. Flow Direction & Accumulation
         FlowDirectionGrid flowDirectionGrid = flowDirectionService.calculateFlowDirection(elevationGrid);
@@ -433,7 +403,7 @@ public class PlanningService {
                 .build();
     }
 
-    private ElevationGrid fetchOrBuildElevationGrid(double north, double south, double east, double west) {
+    private ElevationGrid fetchOrBuildElevationGrid(double north, double south, double east, double west, int rows, int cols) {
         byte[] tiffBytes = null;
 
         if (appeearsClient.hasCredentials()) {
@@ -446,21 +416,18 @@ public class PlanningService {
 
         if (tiffBytes != null) {
             try {
-                double[][] elevations = tiffParser.parseTiffGrid(new ByteArrayInputStream(tiffBytes), GRID_SIZE);
+                double[][] elevations = tiffParser.parseTiffGrid(new ByteArrayInputStream(tiffBytes), rows);
                 return createElevationGridFromMatrix(elevations, north, south, east, west);
             } catch (Exception e) {
                 System.err.println("Error parsing GeoTIFF, falling back to ElevationClient: " + e.getMessage());
             }
         }
 
-        // Fallback to ElevationClient (30x30 regular grid = 900 points)
-        return fetchElevationGridViaClient(north, south, east, west);
+        // Fallback to ElevationClient with adaptive grid dimensions
+        return fetchElevationGridViaClient(north, south, east, west, rows, cols);
     }
 
-    private ElevationGrid fetchElevationGridViaClient(double north, double south, double east, double west) {
-        int rows = GRID_SIZE;
-        int cols = GRID_SIZE;
-
+    private ElevationGrid fetchElevationGridViaClient(double north, double south, double east, double west, int rows, int cols) {
         double latStep = (north - south) / (rows - 1);
         double lonStep = (east - west) / (cols - 1);
 

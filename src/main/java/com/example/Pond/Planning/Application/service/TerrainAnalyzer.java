@@ -1,8 +1,7 @@
 package com.example.Pond.Planning.Application.service;
 
 import com.example.Pond.Planning.Application.client.WeatherClient;
-import com.example.Pond.Planning.Application.dto.Coordinate3D;
-import com.example.Pond.Planning.Application.dto.ContourAnalysisResponse;
+import com.example.Pond.Planning.Application.dto.*;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -17,14 +16,17 @@ public class TerrainAnalyzer {
     private final WeatherClient weatherClient;
     private final CurveNumberService curveNumberService;
     private final PondSizingService pondSizingService;
+    private final HydrologyEngineService hydrologyEngineService;
 
     public TerrainAnalyzer(
             WeatherClient weatherClient,
             CurveNumberService curveNumberService,
-            PondSizingService pondSizingService) {
+            PondSizingService pondSizingService,
+            HydrologyEngineService hydrologyEngineService) {
         this.weatherClient = weatherClient;
         this.curveNumberService = curveNumberService;
         this.pondSizingService = pondSizingService;
+        this.hydrologyEngineService = hydrologyEngineService;
     }
 
     public ContourAnalysisResponse analyze(List<Coordinate3D> points) {
@@ -57,132 +59,41 @@ public class TerrainAnalyzer {
         double latStep = (maxLat - minLat) / (GRID_SIZE - 1);
         double lonStep = (maxLon - minLon) / (GRID_SIZE - 1);
 
+        double[] latitudes = new double[GRID_SIZE];
+        double[] longitudes = new double[GRID_SIZE];
+
         for (int r = 0; r < GRID_SIZE; r++) {
             double cellLat = minLat + r * latStep;
+            latitudes[r] = cellLat;
             for (int c = 0; c < GRID_SIZE; c++) {
                 double cellLon = minLon + c * lonStep;
+                longitudes[c] = cellLon;
                 elevations[r][c] = interpolate(cellLat, cellLon, spatialIndex);
             }
         }
 
-        // Calculate average grid cell dimensions in meters
+        ElevationGrid elevationGrid = ElevationGrid.builder()
+                .rows(GRID_SIZE)
+                .columns(GRID_SIZE)
+                .elevations(elevations)
+                .latitudes(latitudes)
+                .longitudes(longitudes)
+                .minElevation(minEle)
+                .maxElevation(maxEle)
+                .north(maxLat)
+                .south(minLat)
+                .east(maxLon)
+                .west(minLon)
+                .build();
+
+        // 4. Unified GIS Pipeline (Priority-Flood Depression Filling -> D8 Flow -> Accumulation -> Candidates -> Catchment)
+        HydrologyEngineService.HydrologyResult hydro = hydrologyEngineService.executePipeline(elevationGrid, 150.0);
+        List<PondCandidate> candidates = hydro.getCandidates();
+        PondCandidate optimal = candidates.get(0);
+        CatchmentResponse primaryCatchment = hydro.getPrimaryCatchment();
+
+        // 5. Dynamic Climate Calculation
         double avgLat = (minLat + maxLat) / 2.0;
-        double cellHeightMeters = 110540.0 * latStep;
-        double cellWidthMeters = 111320.0 * lonStep * Math.cos(Math.toRadians(avgLat));
-        double cellArea = cellHeightMeters * cellWidthMeters;
-
-        // 4. Compute Flow Directions (D8 Algorithm)
-        // 0: E, 1: SE, 2: S, 3: SW, 4: W, 5: NW, 6: N, 7: NE, -1: Sink (self)
-        int[][] flowDir = new int[GRID_SIZE][GRID_SIZE];
-        int[] dr = {0, 1, 1, 1, 0, -1, -1, -1};
-        int[] dc = {1, 1, 0, -1, -1, -1, 0, 1};
-
-        for (int r = 0; r < GRID_SIZE; r++) {
-            for (int c = 0; c < GRID_SIZE; c++) {
-                double currentEle = elevations[r][c];
-                double maxSlope = -Double.MAX_VALUE;
-                int bestDir = -1;
-
-                for (int d = 0; d < 8; d++) {
-                    int nr = r + dr[d];
-                    int nc = c + dc[d];
-
-                    if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
-                        double neighborEle = elevations[nr][nc];
-                        double dist = (d % 2 == 0) ? 1.0 : Math.sqrt(2.0); // Simple relative distance
-                        double slope = (currentEle - neighborEle) / dist;
-
-                        if (slope > 0 && slope > maxSlope) {
-                            maxSlope = slope;
-                            bestDir = d;
-                        }
-                    }
-                }
-                flowDir[r][c] = bestDir;
-            }
-        }
-
-        // 5. Compute Flow Accumulation
-        double[][] flowAcc = new double[GRID_SIZE][GRID_SIZE];
-        for (int r = 0; r < GRID_SIZE; r++) {
-            Arrays.fill(flowAcc[r], 1.0); // Each cell contributes 1 unit of runoff
-        }
-
-        // Sort all cells by elevation descending
-        List<GridCell> sortedCells = new ArrayList<>();
-        for (int r = 0; r < GRID_SIZE; r++) {
-            for (int c = 0; c < GRID_SIZE; c++) {
-                sortedCells.add(new GridCell(r, c, elevations[r][c]));
-            }
-        }
-        sortedCells.sort((a, b) -> Double.compare(b.elevation, a.elevation));
-
-        for (GridCell cell : sortedCells) {
-            int dir = flowDir[cell.r][cell.c];
-            if (dir != -1) {
-                int nr = cell.r + dr[dir];
-                int nc = cell.c + dc[dir];
-                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
-                    flowAcc[nr][nc] += flowAcc[cell.r][cell.c];
-                }
-            }
-        }
-
-        // 6. Identify Sinks (local minima)
-        List<SinkCandidate> sinks = new ArrayList<>();
-        for (int r = 0; r < GRID_SIZE; r++) {
-            for (int c = 0; c < GRID_SIZE; c++) {
-                if (flowDir[r][c] == -1) {
-                    double cellLat = minLat + r * latStep;
-                    double cellLon = minLon + c * lonStep;
-                    double ele = elevations[r][c];
-
-                    // Estimate catchment for this sink
-                    double catchmentArea = computeCatchmentCells(r, c, flowDir, dr, dc).size() * cellArea;
-
-                    sinks.add(new SinkCandidate(r, c, cellLat, cellLon, ele, flowAcc[r][c], catchmentArea));
-                }
-            }
-        }
-
-        // Sort sinks by flow accumulation descending
-        sinks.sort((a, b) -> Double.compare(b.flowAccumulation, a.flowAccumulation));
-
-        if (sinks.isEmpty()) {
-            // Fallback to highest accumulation cell if no sinks are found
-            double maxAcc = -1;
-            int maxR = GRID_SIZE / 2;
-            int maxC = GRID_SIZE / 2;
-            for (int r = 0; r < GRID_SIZE; r++) {
-                for (int c = 0; c < GRID_SIZE; c++) {
-                    if (flowAcc[r][c] > maxAcc) {
-                        maxAcc = flowAcc[r][c];
-                        maxR = r;
-                        maxC = c;
-                    }
-                }
-            }
-            double cellLat = minLat + maxR * latStep;
-            double cellLon = minLon + maxC * lonStep;
-            double ele = elevations[maxR][maxC];
-            double catchmentArea = computeCatchmentCells(maxR, maxC, flowDir, dr, dc).size() * cellArea;
-            sinks.add(new SinkCandidate(maxR, maxC, cellLat, cellLon, ele, maxAcc, catchmentArea));
-        }
-
-        // 7. Format Response
-        SinkCandidate optimal = sinks.get(0);
-        Coordinate3D pondLocation = new Coordinate3D(optimal.lat, optimal.lon, optimal.elevation);
-
-        // Hydrology & Sizing calculations
-        List<int[]> catchmentGrid = computeCatchmentCells(optimal.r, optimal.c, flowDir, dr, dc);
-        List<Coordinate3D> catchmentCells = new ArrayList<>();
-        for (int[] cell : catchmentGrid) {
-            double cellLat = minLat + cell[0] * latStep;
-            double cellLon = minLon + cell[1] * lonStep;
-            double ele = elevations[cell[0]][cell[1]];
-            catchmentCells.add(new Coordinate3D(cellLat, cellLon, ele));
-        }
-
         double avgLon = (minLon + maxLon) / 2.0;
         double annualRainfallMm = 1100.0;
         if (weatherClient != null) {
@@ -198,8 +109,9 @@ public class TerrainAnalyzer {
         double runoffDepthMm = (curveNumberService != null)
                 ? curveNumberService.calculateRunoffDepthMm(annualRainfallMm, defaultCurveNumber)
                 : annualRainfallMm * 0.35;
-        double estimatedRunoffVolumeCuM = (runoffDepthMm / 1000.0) * optimal.catchmentArea;
+        double estimatedRunoffVolumeCuM = (runoffDepthMm / 1000.0) * primaryCatchment.getAreaSquareMeters();
 
+        // 6. Prismoidal Frustum Pond Sizing
         double targetCapacityCuM = Math.min(estimatedRunoffVolumeCuM * 0.2, 3000.0);
         if (targetCapacityCuM < 100.0) {
             targetCapacityCuM = Math.max(estimatedRunoffVolumeCuM * 0.2, 500.0);
@@ -217,6 +129,12 @@ public class TerrainAnalyzer {
         double pondSurfaceAreaHectares = pondSurfaceAreaSqMeters / 10000.0;
         double actualGrossStorage = (primaryDesign != null) ? primaryDesign.getGrossStorageM3() : targetCapacityCuM;
 
+        Coordinate3D pondLocation = new Coordinate3D(optimal.getLatitude(), optimal.getLongitude(), optimal.getElevation());
+
+        List<Coordinate3D> catchmentCells = primaryCatchment.getCells().stream()
+                .map(c -> new Coordinate3D(c.getLatitude(), c.getLongitude(), c.getElevation()))
+                .toList();
+
         List<ContourAnalysisResponse.SuggestedPondLocation> suggestedPondLocations = new ArrayList<>();
         suggestedPondLocations.add(ContourAnalysisResponse.SuggestedPondLocation.builder()
                 .rank(1)
@@ -229,16 +147,20 @@ public class TerrainAnalyzer {
                 .recommendedWidthMeters(targetW)
                 .recommendedSideSlope(recommendedSideSlope)
                 .estimatedStorageCapacityCuM(actualGrossStorage)
-                .catchmentAreaSqMeters(optimal.catchmentArea)
-                .catchmentAreaHectares(optimal.catchmentArea / 10000.0)
-                .flowAccumulation(optimal.flowAccumulation)
-                .suitabilityScore(optimal.flowAccumulation)
+                .catchmentAreaSqMeters(primaryCatchment.getAreaSquareMeters())
+                .catchmentAreaHectares(primaryCatchment.getAreaHectares())
+                .flowAccumulation(optimal.getFlowAccumulation())
+                .suitabilityScore(optimal.getSuitabilityScore())
                 .build());
 
         List<ContourAnalysisResponse.SinkInfo> altSinks = new ArrayList<>();
-        for (int i = 1; i < Math.min(sinks.size(), 6); i++) {
-            SinkCandidate s = sinks.get(i);
-            double altRunoff = (runoffDepthMm / 1000.0) * s.catchmentArea;
+        List<CatchmentResponse> altCatchments = hydro.getAlternativeCatchments();
+
+        for (int i = 1; i < candidates.size(); i++) {
+            PondCandidate s = candidates.get(i);
+            CatchmentResponse altCatchment = (i - 1 < altCatchments.size()) ? altCatchments.get(i - 1) : primaryCatchment;
+
+            double altRunoff = (runoffDepthMm / 1000.0) * altCatchment.getAreaSquareMeters();
             double altCap = Math.min(altRunoff * 0.2, 3000.0);
             if (altCap < 100.0) altCap = Math.max(altRunoff * 0.2, 500.0);
 
@@ -252,22 +174,22 @@ public class TerrainAnalyzer {
             double altGrossCap = (altDesign != null) ? altDesign.getGrossStorageM3() : altCap;
 
             altSinks.add(ContourAnalysisResponse.SinkInfo.builder()
-                    .location(new Coordinate3D(s.lat, s.lon, s.elevation))
-                    .catchmentAreaSqMeters(s.catchmentArea)
-                    .flowAccumulation(s.flowAccumulation)
+                    .location(new Coordinate3D(s.getLatitude(), s.getLongitude(), s.getElevation()))
+                    .catchmentAreaSqMeters(altCatchment.getAreaSquareMeters())
+                    .flowAccumulation(s.getFlowAccumulation())
                     .depthMeters(3.0)
                     .surfaceAreaSqMeters(altArea)
                     .lengthMeters(altL)
                     .widthMeters(altW)
                     .storageCapacityCuM(altGrossCap)
-                    .suitabilityScore(s.flowAccumulation)
+                    .suitabilityScore(s.getSuitabilityScore())
                     .build());
 
             if (i <= 2) {
                 suggestedPondLocations.add(ContourAnalysisResponse.SuggestedPondLocation.builder()
                         .rank(i + 1)
                         .label("Alternative Suggested Location #" + i)
-                        .location(new Coordinate3D(s.lat, s.lon, s.elevation))
+                        .location(new Coordinate3D(s.getLatitude(), s.getLongitude(), s.getElevation()))
                         .recommendedDepthMeters(3.0)
                         .pondSurfaceAreaSqMeters(altArea)
                         .pondSurfaceAreaHectares(altArea / 10000.0)
@@ -275,18 +197,18 @@ public class TerrainAnalyzer {
                         .recommendedWidthMeters(altW)
                         .recommendedSideSlope(1.5)
                         .estimatedStorageCapacityCuM(altGrossCap)
-                        .catchmentAreaSqMeters(s.catchmentArea)
-                        .catchmentAreaHectares(s.catchmentArea / 10000.0)
-                        .flowAccumulation(s.flowAccumulation)
-                        .suitabilityScore(s.flowAccumulation)
+                        .catchmentAreaSqMeters(altCatchment.getAreaSquareMeters())
+                        .catchmentAreaHectares(altCatchment.getAreaHectares())
+                        .flowAccumulation(s.getFlowAccumulation())
+                        .suitabilityScore(s.getSuitabilityScore())
                         .build());
             }
         }
 
         return ContourAnalysisResponse.builder()
                 .pondLocation(pondLocation)
-                .catchmentAreaSqMeters(optimal.catchmentArea)
-                .catchmentAreaHectares(optimal.catchmentArea / 10000.0)
+                .catchmentAreaSqMeters(primaryCatchment.getAreaSquareMeters())
+                .catchmentAreaHectares(primaryCatchment.getAreaHectares())
                 .minElevation(minEle)
                 .maxElevation(maxEle)
                 .alternativeSinks(altSinks)
@@ -300,11 +222,11 @@ public class TerrainAnalyzer {
                 .estimatedRunoffVolumeCuM(estimatedRunoffVolumeCuM)
                 .recommendedDepthMeters(recommendedDepthMeters)
                 .recommendedLengthMeters(targetL)
-                .recommendedWidthMeters(targetL)
+                .recommendedWidthMeters(targetW)
                 .recommendedSideSlope(recommendedSideSlope)
                 .pondSurfaceAreaSqMeters(pondSurfaceAreaSqMeters)
                 .pondSurfaceAreaHectares(pondSurfaceAreaHectares)
-                .estimatedStorageCapacityCuM(targetCapacityCuM)
+                .estimatedStorageCapacityCuM(actualGrossStorage)
                 .build();
     }
 
@@ -327,76 +249,10 @@ public class TerrainAnalyzer {
         return weightSum > 0 ? (weightedSum / weightSum) : 0.0;
     }
 
-    // Distance in degrees (suitable for local interpolation comparisons)
     private double distance(double lat1, double lon1, double lat2, double lon2) {
         double dLat = lat1 - lat2;
         double dLon = lon1 - lon2;
         return Math.sqrt(dLat * dLat + dLon * dLon);
-    }
-
-    private List<int[]> computeCatchmentCells(int targetR, int targetC, int[][] flowDir, int[] dr, int[] dc) {
-        List<int[]> catchment = new ArrayList<>();
-        boolean[][] visited = new boolean[GRID_SIZE][GRID_SIZE];
-        Queue<int[]> queue = new LinkedList<>();
-
-        queue.add(new int[]{targetR, targetC});
-        visited[targetR][targetC] = true;
-
-        while (!queue.isEmpty()) {
-            int[] cell = queue.poll();
-            catchment.add(cell);
-
-            int r = cell[0];
-            int c = cell[1];
-
-            // Look at all neighbors to see which flow into (r, c)
-            for (int d = 0; d < 8; d++) {
-                int nr = r + dr[d];
-                int nc = c + dc[d];
-
-                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && !visited[nr][nc]) {
-                    int neighborFlowDir = flowDir[nr][nc];
-                    if (neighborFlowDir != -1) {
-                        int downstreamR = nr + dr[neighborFlowDir];
-                        int downstreamC = nc + dc[neighborFlowDir];
-                        if (downstreamR == r && downstreamC == c) {
-                            visited[nr][nc] = true;
-                            queue.add(new int[]{nr, nc});
-                        }
-                    }
-                }
-            }
-        }
-
-        return catchment;
-    }
-
-    private static class GridCell {
-        int r, c;
-        double elevation;
-
-        GridCell(int r, int c, double elevation) {
-            this.r = r;
-            this.c = c;
-            this.elevation = elevation;
-        }
-    }
-
-    private static class SinkCandidate {
-        int r, c;
-        double lat, lon, elevation;
-        double flowAccumulation;
-        double catchmentArea;
-
-        SinkCandidate(int r, int c, double lat, double lon, double elevation, double flowAccumulation, double catchmentArea) {
-            this.r = r;
-            this.c = c;
-            this.lat = lat;
-            this.lon = lon;
-            this.elevation = elevation;
-            this.flowAccumulation = flowAccumulation;
-            this.catchmentArea = catchmentArea;
-        }
     }
 
     // Spatial Index partitioning for performance optimization
@@ -454,7 +310,6 @@ public class TerrainAnalyzer {
                 radius++;
             }
 
-            // Sort by distance and return top k
             candidates.sort((a, b) -> {
                 double distA = Math.pow(a.getLatitude() - lat, 2) + Math.pow(a.getLongitude() - lon, 2);
                 double distB = Math.pow(b.getLatitude() - lat, 2) + Math.pow(b.getLongitude() - lon, 2);

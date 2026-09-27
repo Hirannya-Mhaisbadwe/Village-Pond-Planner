@@ -56,11 +56,25 @@ public class FlowDirectionService {
 
     private static final double SQRT_2 = Math.sqrt(2.0);
 
+    private final DepressionFillingService depressionFillingService;
+
+    public FlowDirectionService(DepressionFillingService depressionFillingService) {
+        this.depressionFillingService = depressionFillingService;
+    }
+
+    public FlowDirectionService() {
+        this.depressionFillingService = new DepressionFillingService();
+    }
+
     public FlowDirectionGrid calculateFlowDirection(
             ElevationGrid elevationGrid) {
 
+        ElevationGrid processedGrid = (depressionFillingService != null)
+                ? depressionFillingService.fillDepressions(elevationGrid)
+                : elevationGrid;
+
         double[][] elevations =
-                elevationGrid.getElevations();
+                processedGrid.getElevations();
 
         int rows = elevations.length;
         int columns = elevations[0].length;
