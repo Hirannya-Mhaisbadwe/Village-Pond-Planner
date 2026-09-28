@@ -2,7 +2,8 @@
 
 > **CSD Assignment 1 — Technical System & Deployment Guide**  
 > **Author**: Hirannya Mhaisbadwe (Department of Computer Science & Engineering, IIT Bhilai)  
-> **Repository**: [Hirannya-Mhaisbadwe/Village-Pond-Planner](https://github.com/Hirannya-Mhaisbadwe/Village-Pond-Planner)  
+> **Repository**: [Hirannya-Mhaisbadwe/Village-Pond-Planner](https://github.com/Hirannya-Mhaisbadwe/Village-Pond-Planner)
+> **Website URL**: https://village-pond-planner.onrender.com/ 
 > **📺 Live Video Demonstration**: [https://youtu.be/C__Dr5hiEIo](https://youtu.be/C__Dr5hiEIo)
 
 ---
