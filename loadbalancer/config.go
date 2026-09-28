@@ -32,8 +32,8 @@ func LoadConfig() (*Config, error) {
 		Port:              *port,
 		Algorithm:         *algo,
 		HealthCheckPath:   "/api/health",
-		HealthIntervalSec: 5,
-		HealthTimeoutSec:  2,
+		HealthIntervalSec: 8,
+		HealthTimeoutSec:  6,
 		MaxRetries:        3,
 		Backends: []string{
 			"http://10.1.75.51:5222",

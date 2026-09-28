@@ -60,7 +60,9 @@ func (lb *LoadBalancer) roundRobin() *Backend {
 			return lb.backends[idx]
 		}
 	}
-	return nil
+	// Resilient Soft Fallback: If all backends are temporarily unalive, dispatch to round robin node
+	idx := int(atomic.LoadUint64(&lb.current)) % total
+	return lb.backends[idx]
 }
 
 // Least Connections

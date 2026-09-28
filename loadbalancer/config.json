@@ -2,8 +2,8 @@
   "port": 3000,
   "algorithm": "round-robin",
   "health_check_path": "/api/health",
-  "health_interval_sec": 10,
-  "health_timeout_sec": 5,
+  "health_interval_sec": 8,
+  "health_timeout_sec": 6,
   "max_retries": 3,
   "backends": [
     "http://10.1.75.51:5222",
